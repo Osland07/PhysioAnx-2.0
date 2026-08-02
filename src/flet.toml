@@ -1,0 +1,8 @@
+[app]
+id = "com.physioanx.app"
+name = "PhysioAnx"
+description = "IoT Telemetry"
+version = "1.0.0"
+
+[window]
+icon = "../assets/Logo.ico"
