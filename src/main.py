@@ -13,8 +13,11 @@ def main(page: ft.Page):
     page.window.width = 1100
     page.window.height = 750
     page.bgcolor = "#f1f5f9"
-
     page.window.icon = "Logo.ico"
+
+    # Start persistent Bluetooth BLE Service
+    from services.sensor_service import SensorService
+    SensorService.get_instance(page)
 
     content_area = ft.Container(expand=True)
     content_area.content = DashboardPage()

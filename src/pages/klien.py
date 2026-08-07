@@ -77,6 +77,8 @@ class KlienPage(ft.Container):
             first_date=datetime.datetime(1930, 1, 1),
             last_date=datetime.datetime.now()
         )
+        if self.main_page and self.date_picker not in self.main_page.overlay:
+            self.main_page.overlay.append(self.date_picker)
 
         self.input_tgl = ft.TextField(
             label="Tanggal Lahir",
@@ -120,7 +122,6 @@ class KlienPage(ft.Container):
         )
 
         self.content = ft.Stack([
-            self.date_picker,
             self.main_content,
             self.side_panel
         ], expand=True)
@@ -163,9 +164,12 @@ class KlienPage(ft.Container):
 
     def show_snackbar(self, message, color):
         snackbar = ft.SnackBar(ft.Text(message), bgcolor=color)
-        self.main_page.overlay.append(snackbar)
+        self.main_page.snack_bar = snackbar
         snackbar.open = True
-        self.main_page.update()
+        try:
+            self.main_page.update()
+        except Exception:
+            pass
 
     def load_data(self, search_query="", initial_load=False):
         data_klien = self.db.get_all_klien(search_query)
@@ -286,11 +290,15 @@ class KlienPage(ft.Container):
     def open_delete_dialog(self, klien):
         def close_delete(e):
             dialog.open = False
+            if dialog in self.main_page.overlay:
+                self.main_page.overlay.remove(dialog)
             self.main_page.update()
 
         def on_hapus(e):
             self.db.delete_klien(klien["id"])
             dialog.open = False
+            if dialog in self.main_page.overlay:
+                self.main_page.overlay.remove(dialog)
             self.main_page.update()
             self.load_data()
             self.show_snackbar("Klien telah dihapus!", ft.Colors.RED)

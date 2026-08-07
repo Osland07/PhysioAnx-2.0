@@ -12,7 +12,26 @@ class SesiBaruPage(ft.Container):
         self.klien_db = KlienService()
         self.sesi_db = SesiService()
 
-        self.sensor_service = SensorService(page, self._on_sensor_data)
+        self.latest_prediction_result = None
+
+        # Bluetooth Status Indicator Badge UI
+        self.ble_status_icon = ft.Icon(ft.Icons.BLUETOOTH_SEARCHING, color=ft.Colors.AMBER_600, size=18)
+        self.ble_status_text = ft.Text("Mencari Device...", size=13, weight="w500", color=ft.Colors.AMBER_800)
+        self.ble_status_badge = ft.Container(
+            content=ft.Row([self.ble_status_icon, self.ble_status_text], spacing=6),
+            padding=ft.Padding(left=12, right=12, top=6, bottom=6),
+            bgcolor=ft.Colors.AMBER_50,
+            border=ft.Border.all(1, ft.Colors.AMBER_200),
+            border_radius=20
+        )
+
+        # Get persistent SensorService singleton & register callbacks
+        self.sensor_service = SensorService.get_instance(page)
+        self.sensor_service.register_callbacks(
+            on_data=self._on_sensor_data,
+            on_status=self._on_sensor_status,
+            on_prediction=self._on_sensor_prediction
+        )
 
         self.expand = True
         self.bgcolor = ft.Colors.WHITE
@@ -22,7 +41,6 @@ class SesiBaruPage(ft.Container):
         self.shadow = ft.BoxShadow(spread_radius=0, blur_radius=20, color=ft.Colors.with_opacity(0.04, ft.Colors.BLACK), offset=ft.Offset(0, 4))
 
         self.selected_klien_id = None
-
         self.session_active = False
         self.time_counter = 0
 
@@ -46,7 +64,6 @@ class SesiBaruPage(ft.Container):
         self.val_nama = ft.Text("-", weight="bold", size=16, color="#1e293b")
         self.val_jk = ft.Text("-", size=15, color="#334155")
         self.val_umur = ft.Text("-", size=15, color="#334155")
-
         self.val_hp = ft.Text("-", size=15, color="#334155")
         self.val_email = ft.Text("-", size=15, color="#334155")
         self.val_alamat = ft.Text("-", size=15, color="#334155", max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
@@ -112,8 +129,13 @@ class SesiBaruPage(ft.Container):
         )
 
         self.view_presession = ft.Column([
-            ft.Text("Pre-Session", size=28, weight=ft.FontWeight.W_800, color="#1e293b"),
-            ft.Text("Silakan cari dan pilih klien dari database untuk melihat data klien dan memulai sesi konseling hari ini.", color=ft.Colors.GREY_700),
+            ft.Row([
+                ft.Column([
+                    ft.Text("Pre-Session", size=28, weight=ft.FontWeight.W_800, color="#1e293b"),
+                    ft.Text("Silakan cari dan pilih klien dari database untuk melihat data klien dan memulai sesi konseling.", color=ft.Colors.GREY_700),
+                ], expand=True),
+                self.ble_status_badge
+            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
             ft.Row([self.dropdown_klien]),
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
@@ -123,6 +145,9 @@ class SesiBaruPage(ft.Container):
 
         self.session_name = ft.Text("-", size=24, weight="bold", color=ft.Colors.BLUE_900)
         self.session_details = ft.Text("-", size=16, color=ft.Colors.GREY_600)
+
+        # Prediction Result Simple Text UI (No Card Container)
+        self.prediction_text = ft.Text("", size=15, weight="bold", visible=False)
 
         self.session_header = ft.Row([
             ft.Container(
@@ -134,10 +159,11 @@ class SesiBaruPage(ft.Container):
             ft.Column([
                 ft.Row([
                     ft.Text("Sesi Konseling Aktif", size=12, weight="bold", color=ft.Colors.BLUE_600),
-                    ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.RED_500, size=10)
+                    ft.Icon(ft.Icons.CIRCLE, color=ft.Colors.GREEN_500, size=10)
                 ], spacing=5),
                 self.session_name,
-                self.session_details
+                self.session_details,
+                self.prediction_text
             ], spacing=2)
         ], alignment=ft.MainAxisAlignment.START, spacing=15)
 
@@ -146,22 +172,23 @@ class SesiBaruPage(ft.Container):
         self.val_temp = ft.Text("--", size=36, weight="bold", color=ft.Colors.ORANGE_600)
 
         def create_sensor_card(title, val_control, unit, icon, icon_color):
-            return ft.Card(
-                elevation=0,
-                content=ft.Container(
-                    width=230,
-                    padding=20,
-                    bgcolor=ft.Colors.WHITE,
-                    border_radius=12,
-                    border=ft.Border.all(1, "#e2e8f0"),
-                    content=ft.Column([
-                        ft.Row([
-                            ft.Icon(icon, color=icon_color, size=24),
-                            ft.Text(title, size=15, weight="bold", color=ft.Colors.GREY_700)
-                        ]),
-                        ft.Row([val_control, ft.Text(unit, size=16, weight="w500", color=ft.Colors.GREY_500)], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.END)
-                    ], alignment=ft.MainAxisAlignment.CENTER)
-                )
+            return ft.Container(
+                width=240,
+                height=180,
+                padding=18,
+                bgcolor=ft.Colors.WHITE,
+                border_radius=12,
+                border=ft.Border.all(1, "#e2e8f0"),
+                content=ft.Column([
+                    ft.Row([
+                        ft.Icon(icon, color=icon_color, size=22),
+                        ft.Text(title, size=14, weight="bold", color=ft.Colors.GREY_700)
+                    ], spacing=8),
+                    ft.Row([
+                        val_control,
+                        ft.Text(unit, size=15, weight="w500", color=ft.Colors.GREY_500)
+                    ], alignment=ft.MainAxisAlignment.START, vertical_alignment=ft.CrossAxisAlignment.END)
+                ], spacing=6, alignment=ft.MainAxisAlignment.CENTER)
             )
 
         self.chart_data_hr = []
@@ -169,50 +196,110 @@ class SesiBaruPage(ft.Container):
         self.chart_data_temp = []
 
         self.chart_hr = self._create_chart("Heart Rate", self.chart_data_hr, ft.Colors.RED_500, 60, 150, " BPM")
-        self.chart_gsr = self._create_chart("Galvanic Skin Response", self.chart_data_gsr, ft.Colors.BLUE_500, 0, 50, " µS")
+        self.chart_gsr = self._create_chart("Galvanic Skin Response", self.chart_data_gsr, ft.Colors.BLUE_500, 0, 10, " µS")
         self.chart_temp = self._create_chart("Suhu Tubuh", self.chart_data_temp, ft.Colors.ORANGE_500, 35, 40, " °C")
 
         self.card_hr = create_sensor_card("Heart Rate", self.val_hr, "BPM", ft.Icons.FAVORITE, ft.Colors.RED_500)
         self.card_gsr = create_sensor_card("GSR", self.val_gsr, "µS", ft.Icons.WATER_DROP, ft.Colors.BLUE_500)
-        self.card_temp = create_sensor_card("Suhu", self.val_temp, "°C", ft.Icons.THERMOSTAT, ft.Colors.ORANGE_500)
+        self.card_temp = create_sensor_card("Suhu Tubuh", self.val_temp, "°C", ft.Icons.THERMOSTAT, ft.Colors.ORANGE_500)
 
         self.charts_container = ft.Column([
-            ft.Row([self.chart_hr, self.card_hr], expand=True, spacing=15, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-            ft.Row([self.chart_gsr, self.card_gsr], expand=True, spacing=15, vertical_alignment=ft.CrossAxisAlignment.STRETCH),
-            ft.Row([self.chart_temp, self.card_temp], expand=True, spacing=15, vertical_alignment=ft.CrossAxisAlignment.STRETCH)
-        ], expand=True, spacing=15)
+            ft.Row([self.chart_hr, self.card_hr], height=180, spacing=15),
+            ft.Row([self.chart_gsr, self.card_gsr], height=180, spacing=15),
+            ft.Row([self.chart_temp, self.card_temp], height=180, spacing=15)
+        ], spacing=15)
 
-        self.btn_selesai = ft.Button(
-            "Akhiri & Simpan Data",
-            icon=ft.Icons.STOP_CIRCLE_ROUNDED,
-            style=ft.ButtonStyle(bgcolor=ft.Colors.RED_600, color=ft.Colors.WHITE, padding=15, shape=ft.RoundedRectangleBorder(radius=10)),
+        self.btn_batal = ft.Button(
+            "Batalkan",
+            icon=ft.Icons.ARROW_BACK_ROUNDED,
+            style=ft.ButtonStyle(bgcolor="#64748b", color=ft.Colors.WHITE, padding=15, shape=ft.RoundedRectangleBorder(radius=10)),
+            on_click=self.batal_sesi
+        )
+
+        self.btn_simpan = ft.Button(
+            "Simpan Sesi",
+            icon=ft.Icons.SAVE_ROUNDED,
+            style=ft.ButtonStyle(bgcolor=ft.Colors.GREEN_600, color=ft.Colors.WHITE, padding=15, shape=ft.RoundedRectangleBorder(radius=10)),
             on_click=self.akhiri_sesi
         )
-        self.btn_batal = ft.TextButton("Batalkan", on_click=self.batal_sesi, style=ft.ButtonStyle(color=ft.Colors.GREY_600))
 
         self.view_session = ft.Column([
             self.session_header,
             ft.Divider(height=10, color=ft.Colors.TRANSPARENT),
 
-            ft.Text("Visualisasi Grafik Kecemasan", size=16, weight="bold", color=ft.Colors.GREY_800),
+            ft.Text("Visualisasi Grafik & Metrik Sensor Real-Time", size=16, weight="bold", color=ft.Colors.GREY_800),
             self.charts_container,
 
             ft.Divider(height=20, color=ft.Colors.TRANSPARENT),
-            ft.Row([self.btn_batal, self.btn_selesai], alignment=ft.MainAxisAlignment.END)
-        ], visible=False, expand=True)
+            ft.Row([self.btn_batal, self.btn_simpan], alignment=ft.MainAxisAlignment.END, spacing=15)
+        ], visible=False, scroll=ft.ScrollMode.AUTO)
 
         self.content = ft.Column([
             self.view_presession,
             self.view_session
-        ], expand=True)
+        ], expand=True, scroll=ft.ScrollMode.AUTO)
 
         self.load_klien_data()
 
+    def _update_ble_badge(self, status: str, detail: str = ""):
+        if status == "connected":
+            self.ble_status_icon.name = ft.Icons.BLUETOOTH_CONNECTED
+            self.ble_status_icon.color = ft.Colors.GREEN_600
+            self.ble_status_text.value = "Terhubung"
+            self.ble_status_text.color = ft.Colors.GREEN_800
+            self.ble_status_badge.bgcolor = ft.Colors.GREEN_50
+            self.ble_status_badge.border = ft.Border.all(1, ft.Colors.GREEN_300)
+        else:
+            self.ble_status_icon.name = ft.Icons.BLUETOOTH_SEARCHING
+            self.ble_status_icon.color = ft.Colors.AMBER_600
+            self.ble_status_text.value = "Mencari Device..."
+            self.ble_status_text.color = ft.Colors.AMBER_800
+            self.ble_status_badge.bgcolor = ft.Colors.AMBER_50
+            self.ble_status_badge.border = ft.Border.all(1, ft.Colors.AMBER_200)
+
+        try:
+            self.ble_status_badge.update()
+        except Exception:
+            pass
+
+    def _on_sensor_status(self, category, status_code, message):
+        if category == "connection":
+            self._update_ble_badge(status_code, message)
+        elif category == "scan_status" and status_code == "finish":
+            if self.session_active:
+                self.akhiri_sesi(None)
+
+    def _on_sensor_prediction(self, hasil_text: str):
+        self.latest_prediction_result = hasil_text
+        self.prediction_text.value = f"Hasil Prediksi: {hasil_text}"
+        self.prediction_text.visible = True
+
+        hasil_lower = hasil_text.lower()
+        if "normal" in hasil_lower:
+            self.prediction_text.color = ft.Colors.GREEN_600
+        elif "sangat cemas" in hasil_lower or "severe" in hasil_lower:
+            self.prediction_text.color = ft.Colors.RED_600
+        else:
+            self.prediction_text.color = ft.Colors.AMBER_600
+
+        try:
+            self.prediction_text.update()
+        except Exception:
+            pass
+
+        try:
+            self.prediction_badge.update()
+        except Exception:
+            pass
+
     def show_snackbar(self, message, color):
         snackbar = ft.SnackBar(ft.Text(message), bgcolor=color)
-        self.main_page.overlay.append(snackbar)
+        self.main_page.snack_bar = snackbar
         snackbar.open = True
-        self.main_page.update()
+        try:
+            self.main_page.update()
+        except Exception:
+            pass
 
     def load_klien_data(self):
         klien_list = self.klien_db.get_all_klien()
@@ -278,11 +365,13 @@ class SesiBaruPage(ft.Container):
 
         self.session_active = True
         self.time_counter = 0
+        self.latest_prediction_result = None
+        self.prediction_text.visible = False
+        self.prediction_text.value = ""
+
         self.chart_data_hr.clear()
         self.chart_data_gsr.clear()
         self.chart_data_temp.clear()
-
-        self.sensor_service.start()
 
         if self.main_page:
             self.update()
@@ -313,18 +402,21 @@ class SesiBaruPage(ft.Container):
 
         try:
             self.update()
-        except:
+        except Exception:
             pass
+
+        if self.time_counter >= 60 and self.session_active:
+            self.akhiri_sesi(None)
 
     def batal_sesi(self, e):
         self.session_active = False
-        self.sensor_service.stop()
         self.view_presession.visible = True
         self.view_session.visible = False
         self.dropdown_klien.value = None
         self.klien_info_card.visible = False
         self.empty_state_card.visible = True
         self.selected_klien_id = None
+        self.latest_prediction_result = None
 
         self.val_hr.value = "--"
         self.val_gsr.value = "--"
@@ -334,7 +426,15 @@ class SesiBaruPage(ft.Container):
             self.update()
 
     def akhiri_sesi(self, e):
+        if not self.session_active:
+            return
+
         self.session_active = False
+
+        if not self.chart_data_hr:
+            self.show_snackbar("Tidak ada data telemetri yang terekam.", ft.Colors.RED_600)
+            self.batal_sesi(None)
+            return
 
         avg_hr = sum(p.y for p in self.chart_data_hr) / max(1, len(self.chart_data_hr))
         avg_gsr = sum(p.y for p in self.chart_data_gsr) / max(1, len(self.chart_data_gsr))
@@ -350,10 +450,12 @@ class SesiBaruPage(ft.Container):
             round(avg_hr, 1),
             round(avg_gsr, 1),
             round(avg_temp, 2),
-            arr_hr, arr_gsr, arr_temp
+            arr_hr, arr_gsr, arr_temp,
+            hasil_prediksi=self.latest_prediction_result
         )
 
-        self.show_snackbar("Data klien & Telemetri Grafik berhasil disimpan!", ft.Colors.GREEN)
+        msg_text = f"Sesi Perekaman Data (Hasil: {self.latest_prediction_result or 'Normal'}) Berhasil Disimpan!"
+        self.show_snackbar(msg_text, ft.Colors.GREEN_600)
 
         self.batal_sesi(None)
 
@@ -390,6 +492,7 @@ class SesiBaruPage(ft.Container):
                 ft.Container(content=chart, expand=True)
             ]),
             expand=True,
+            height=180,
             padding=10,
             bgcolor=ft.Colors.WHITE,
             border_radius=10,

@@ -26,14 +26,19 @@ class SesiService:
             avg_gsr REAL,
             avg_temp REAL,
             data_grafik TEXT,
+            hasil_prediksi TEXT,
             FOREIGN KEY (klien_id) REFERENCES klien (id)
         )
         """
         with self._get_connection() as conn:
             conn.execute(query)
+            try:
+                conn.execute("ALTER TABLE sesi ADD COLUMN hasil_prediksi TEXT")
+            except sqlite3.OperationalError:
+                pass
             conn.commit()
 
-    def simpan_sesi(self, klien_id, durasi_detik, avg_hr, avg_gsr, avg_temp, arr_hr, arr_gsr, arr_temp):
+    def simpan_sesi(self, klien_id, durasi_detik, avg_hr, avg_gsr, avg_temp, arr_hr, arr_gsr, arr_temp, hasil_prediksi=None):
         data_grafik = json.dumps({
             "hr": arr_hr,
             "gsr": arr_gsr,
@@ -43,13 +48,13 @@ class SesiService:
         tanggal_sekarang = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         query = """
-        INSERT INTO sesi (klien_id, tanggal_sesi, durasi_detik, avg_hr, avg_gsr, avg_temp, data_grafik)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO sesi (klien_id, tanggal_sesi, durasi_detik, avg_hr, avg_gsr, avg_temp, data_grafik, hasil_prediksi)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute(query, (
-                klien_id, tanggal_sekarang, durasi_detik, avg_hr, avg_gsr, avg_temp, data_grafik
+                klien_id, tanggal_sekarang, durasi_detik, avg_hr, avg_gsr, avg_temp, data_grafik, hasil_prediksi
             ))
 
             cursor.execute("UPDATE klien SET kunjungan_terakhir = ? WHERE id = ?",

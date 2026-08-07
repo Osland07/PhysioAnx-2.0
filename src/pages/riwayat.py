@@ -19,6 +19,14 @@ class RiwayatPage(ft.Container):
         self.margin = ft.Margin(left=0, top=15, right=15, bottom=15)
         self.padding = 30
 
+        self.date_picker = ft.DatePicker(
+            on_change=self.on_date_picked,
+            on_dismiss=self.on_date_picked,
+        )
+
+        if self.main_page and self.date_picker not in self.main_page.overlay:
+            self.main_page.overlay.append(self.date_picker)
+
         self.datatable = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("ID", weight="bold"), heading_row_alignment=ft.MainAxisAlignment.CENTER),
@@ -45,14 +53,6 @@ class RiwayatPage(ft.Container):
             content_padding=0,
             on_change=self.on_filter_changed
         )
-
-        self.date_picker = ft.DatePicker(
-            on_change=self.on_date_picked,
-            on_dismiss=self.on_date_picked,
-        )
-
-        self.save_pdf_dialog = ft.FilePicker()
-        self.current_sesi_id_for_pdf = None
 
         self.btn_date = ft.TextButton(
             "Pilih Tanggal",
@@ -147,13 +147,20 @@ class RiwayatPage(ft.Container):
         ], expand=True, visible=False)
 
         self.content = ft.Column([
-            self.date_picker,
-            self.save_pdf_dialog,
             self.view_pilih_riwayat,
             self.view_detail_grafik
         ], expand=True)
 
         self.load_all_riwayat(is_init=True)
+
+    def show_snackbar(self, message, color):
+        snackbar = ft.SnackBar(ft.Text(message), bgcolor=color)
+        self.main_page.snack_bar = snackbar
+        snackbar.open = True
+        try:
+            self.main_page.update()
+        except Exception:
+            pass
 
     def open_date_picker(self, e):
         self.date_picker.open = True
@@ -194,40 +201,56 @@ class RiwayatPage(ft.Container):
         self.datatable.rows.clear()
 
         for sesi in riwayat_list:
-            hr_val = float(sesi['avg_hr'])
-            if hr_val <= 80:
-                kategori = "Normal to Mild"
-            elif hr_val <= 95:
-                kategori = "Mild to Moderate"
-            elif hr_val <= 110:
-                kategori = "Moderate to Severe"
-            else:
-                kategori = "Severe"
+            sesi_id = sesi['id']
+            hasil_prediksi = sesi.get('hasil_prediksi')
 
-            hasil_ui = ft.Row([ft.Text(kategori, color=ft.Colors.BLUE_GREY_900, weight="w500")], alignment=ft.MainAxisAlignment.START)
+            if not hasil_prediksi:
+                hr_val = float(sesi['avg_hr'] or 0)
+                if hr_val <= 80:
+                    kategori = "Normal"
+                elif hr_val <= 95:
+                    kategori = "Cemas"
+                else:
+                    kategori = "Sangat Cemas"
+            else:
+                kategori = hasil_prediksi
+
+            if "normal" in str(kategori).lower():
+                badge_color = ft.Colors.GREEN_700
+                badge_bg = ft.Colors.GREEN_50
+            elif "sangat" in str(kategori).lower() or "severe" in str(kategori).lower():
+                badge_color = ft.Colors.RED_700
+                badge_bg = ft.Colors.RED_50
+            else:
+                badge_color = ft.Colors.AMBER_700
+                badge_bg = ft.Colors.AMBER_50
+
+            hasil_ui = ft.Container(
+                content=ft.Text(kategori, color=badge_color, weight="bold", size=12),
+                padding=ft.Padding(8, 4, 8, 4),
+                bgcolor=badge_bg,
+                border_radius=8
+            )
 
             btn_lihat = ft.Button(
                 "Detail",
                 icon=ft.Icons.SHOW_CHART_ROUNDED,
-                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.BLUE),
-                data=sesi['id'],
-                on_click=self.buka_detail
+                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.BLUE_600),
+                on_click=lambda e, sid=sesi_id: self.buka_detail(sid)
             )
 
             btn_pdf = ft.Button(
                 "PDF",
                 icon=ft.Icons.PICTURE_AS_PDF_ROUNDED,
-                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.GREEN),
-                data=sesi['id'],
-                on_click=self.buka_pdf_dialog
+                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.GREEN_600),
+                on_click=lambda e, sid=sesi_id: self.buka_pdf_dialog(sid)
             )
 
             btn_hapus = ft.Button(
                 "Hapus",
                 icon=ft.Icons.DELETE_ROUNDED,
-                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.RED),
-                data=sesi['id'],
-                on_click=self.hapus_sesi
+                style=ft.ButtonStyle(color=ft.Colors.WHITE, bgcolor=ft.Colors.RED_600),
+                on_click=lambda e, sid=sesi_id: self.hapus_sesi(sid)
             )
 
             aksi_ui = ft.Row([btn_lihat, btn_pdf, btn_hapus], spacing=5)
@@ -249,44 +272,43 @@ class RiwayatPage(ft.Container):
             except Exception:
                 pass
 
-    async def buka_pdf_dialog(self, e):
-        self.current_sesi_id_for_pdf = e.control.data
-        path = await self.save_pdf_dialog.save_file(
-            dialog_title="Simpan Surat Hasil Pemeriksaan",
-            file_name=f"Hasil_Pemeriksaan_Sesi_{self.current_sesi_id_for_pdf}.pdf",
-            allowed_extensions=["pdf"]
-        )
-        if path:
-            sesi_id = self.current_sesi_id_for_pdf
-            if not sesi_id:
-                return
+    def buka_pdf_dialog(self, sesi_id):
+        detail_sesi = self.sesi_db.get_detail_sesi(sesi_id)
+        if not detail_sesi:
+            return
 
-            detail_sesi = self.sesi_db.get_detail_sesi(sesi_id)
-            if not detail_sesi:
-                return
+        klien_info = self.klien_db.get_klien_by_id(detail_sesi['klien_id'])
+        if not klien_info:
+            return
 
-            klien_info = self.klien_db.get_klien_by_id(detail_sesi['klien_id'])
-            if not klien_info:
-                return
+        export_dir = os.path.join(os.getcwd(), "pdf_exports")
+        os.makedirs(export_dir, exist_ok=True)
 
-            buat_pdf_hasil(klien_info, detail_sesi, path)
+        nama_klien = klien_info.get('nama', 'Klien').strip().replace(' ', '_')
+        file_name = f"Hasil_Pemeriksaan_{nama_klien}_Sesi_{sesi_id}.pdf"
+        pdf_path = os.path.join(export_dir, file_name)
 
-            try:
-                os.startfile(path)
-            except Exception:
-                pass
+        buat_pdf_hasil(klien_info, detail_sesi, pdf_path)
+        self.show_snackbar(f"PDF Berhasil Dibuat!", ft.Colors.GREEN_600)
+        try:
+            os.startfile(pdf_path)
+        except Exception:
+            pass
 
-    def hapus_sesi(self, e):
-        sesi_id = e.control.data
-
+    def hapus_sesi(self, sesi_id):
         def close_dialog(e):
             dialog.open = False
+            if dialog in self.main_page.overlay:
+                self.main_page.overlay.remove(dialog)
             self.main_page.update()
 
         def on_confirm(e):
             self.sesi_db.delete_sesi(sesi_id)
             dialog.open = False
+            if dialog in self.main_page.overlay:
+                self.main_page.overlay.remove(dialog)
             self.main_page.update()
+            self.show_snackbar(f"Riwayat Sesi #{sesi_id} berhasil dihapus", ft.Colors.RED_600)
             self.load_all_riwayat()
 
         dialog = ft.AlertDialog(
@@ -303,22 +325,23 @@ class RiwayatPage(ft.Container):
         dialog.open = True
         self.main_page.update()
 
-    def buka_detail(self, e):
-        sesi_id = e.control.data
+    def buka_detail(self, sesi_id):
         detail = self.sesi_db.get_detail_sesi(sesi_id)
         if not detail:
             return
 
         self.detail_title.value = f"Rekaman Grafik ({detail['tanggal_sesi']})"
 
-        if detail['data_grafik']:
-            grafik = json.loads(detail['data_grafik'])
-
-            self.chart_hr_container.content = self._render_chart("Heart Rate", grafik['hr'], ft.Colors.RED_500, " BPM")
-            self.chart_gsr_container.content = self._render_chart("GSR", grafik['gsr'], ft.Colors.BLUE_500, " µS")
-            self.chart_temp_container.content = self._render_chart("Suhu", grafik['temp'], ft.Colors.ORANGE_500, " °C")
+        if detail.get('data_grafik'):
+            try:
+                grafik = json.loads(detail['data_grafik'])
+                self.chart_hr_container.content = self._render_chart("Heart Rate", grafik['hr'], ft.Colors.RED_500, " BPM")
+                self.chart_gsr_container.content = self._render_chart("GSR", grafik['gsr'], ft.Colors.BLUE_500, " µS")
+                self.chart_temp_container.content = self._render_chart("Suhu Tubuh", grafik['temp'], ft.Colors.ORANGE_500, " °C")
+            except Exception as ex:
+                self.chart_hr_container.content = ft.Text(f"Data grafik gagal dimuat: {ex}")
         else:
-            self.chart_hr_container.content = ft.Text("Data grafik rusak atau kosong")
+            self.chart_hr_container.content = ft.Text("Data grafik kosong")
 
         self.view_pilih_riwayat.visible = False
         self.view_detail_grafik.visible = True

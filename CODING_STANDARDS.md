@@ -1,6 +1,6 @@
 # Standar Pengkodingan & Arsitektur PhysioAnx (Ala Laravel MVC)
 
-Dokumen ini berisi aturan main (guideline) untuk pengembangan sistem PhysioAnx. Aplikasi ini menggunakan antarmuka desktop (PySide6), namun diarsiteki dengan konsep **MVC (Model-View-Controller)** yang sangat terinspirasi oleh framework web modern seperti Laravel.
+Dokumen ini berisi aturan (guideline) untuk pengembangan sistem PhysioAnx. Aplikasi ini menggunakan antarmuka desktop (PySide6), namun diarsiteki dengan konsep **MVC (Model-View-Controller)** yang sangat terinspirasi oleh framework web modern seperti Laravel.
 
 Tujuan utama aturan ini adalah untuk mencegah *God Object* (satu file yang berisi ribuan baris kode) dan memastikan *Separation of Concerns* (Pemisahan Tugas).
 
